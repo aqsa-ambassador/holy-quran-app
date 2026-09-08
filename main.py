@@ -16,17 +16,11 @@ def get_surah_list():
 
 
 @st.cache_data(ttl=60 * 60 * 24)
-def get_text(surah, ayah, edition):
-    r = requests.get(f"{BASE_URL}/ayah/{surah}:{ayah}/{edition}", timeout=15)
+def get_surah_data(surah, edition):
+    """Fetch a whole surah (all ayahs) for a given text or audio edition in one call."""
+    r = requests.get(f"{BASE_URL}/surah/{surah}/{edition}", timeout=20)
     r.raise_for_status()
-    return r.json()["data"]["text"]
-
-
-@st.cache_data(ttl=60 * 60 * 24)
-def get_audio_url(surah, ayah, edition):
-    r = requests.get(f"{BASE_URL}/ayah/{surah}:{ayah}/{edition}", timeout=15)
-    r.raise_for_status()
-    return r.json()["data"]["audio"]
+    return r.json()["data"]["ayahs"]
 
 
 @st.cache_data(ttl=60 * 60 * 24)
@@ -51,67 +45,100 @@ except Exception:
 surah_labels = [f"{s['number']}. {s['englishName']} ({s['name']})" for s in surahs]
 idx = st.selectbox("Surah chuniye", range(len(surahs)), format_func=lambda i: surah_labels[i])
 surah_number = surahs[idx]["number"]
-ayah_count = surahs[idx]["numberOfAyahs"]
-ayah_number = st.number_input("Ayat number", min_value=1, max_value=ayah_count, value=1, step=1)
+surah_name = surahs[idx]["englishName"]
 
 st.divider()
 mode = st.radio("Aap kya karna chahte hain?", ["📖 Read (Parhna)", "🔊 Listen (Sunna)"], horizontal=True)
 
-try:
-    arabic_text = get_text(surah_number, ayah_number, "quran-uthmani")
-except Exception:
-    st.error("Ayat load nahi ho saki.")
-    st.stop()
-
 if mode.startswith("📖"):
     choice = st.radio("Translation bhi dikhayen?", ["Sirf Arabic", "Arabic + Urdu", "Arabic + English"])
-    st.markdown(
-        f"<div style='font-size:30px; text-align:right; direction:rtl; line-height:1.8'>{arabic_text}</div>",
-        unsafe_allow_html=True,
-    )
+
+    try:
+        arabic_ayahs = get_surah_data(surah_number, "quran-uthmani")
+    except Exception:
+        st.error("Surah load nahi ho saki.")
+        st.stop()
+
+    urdu_ayahs = english_ayahs = None
     if "Urdu" in choice:
-        st.markdown(f"**Urdu Translation:** {get_text(surah_number, ayah_number, 'ur.jalandhry')}")
+        urdu_ayahs = get_surah_data(surah_number, "ur.jalandhry")
     if "English" in choice:
-        st.markdown(f"**English Translation:** {get_text(surah_number, ayah_number, 'en.sahih')}")
+        english_ayahs = get_surah_data(surah_number, "en.sahih")
+
+    st.subheader(f"Surah {surah_name}")
+
+    AYAHS_PER_PAGE = 10
+    total_ayahs = len(arabic_ayahs)
+    total_pages = max(1, (total_ayahs + AYAHS_PER_PAGE - 1) // AYAHS_PER_PAGE)
+
+    # Reset to page 1 whenever the surah changes
+    if st.session_state.get("read_surah") != surah_number:
+        st.session_state["read_surah"] = surah_number
+        st.session_state["read_page"] = 1
+
+    if total_pages > 1:
+        nav1, nav2, nav3 = st.columns([1, 2, 1])
+        with nav1:
+            if st.button("⬅️ Previous", disabled=st.session_state["read_page"] <= 1):
+                st.session_state["read_page"] -= 1
+        with nav3:
+            if st.button("Next ➡️", disabled=st.session_state["read_page"] >= total_pages):
+                st.session_state["read_page"] += 1
+        with nav2:
+            st.markdown(
+                f"<div style='text-align:center'>Page {st.session_state['read_page']} of {total_pages}</div>",
+                unsafe_allow_html=True,
+            )
+
+    page = st.session_state.get("read_page", 1)
+    start = (page - 1) * AYAHS_PER_PAGE
+    end = start + AYAHS_PER_PAGE
+
+    for i in range(start, min(end, total_ayahs)):
+        ayah = arabic_ayahs[i]
+        st.markdown(f"**{ayah['numberInSurah']}.**")
+        st.markdown(
+            f"<div style='font-size:28px; text-align:right; direction:rtl; line-height:1.8'>{ayah['text']}</div>",
+            unsafe_allow_html=True,
+        )
+        if urdu_ayahs:
+            st.markdown(f"*Urdu:* {urdu_ayahs[i]['text']}")
+        if english_ayahs:
+            st.markdown(f"*English:* {english_ayahs[i]['text']}")
+        st.markdown("---")
 
 else:
     choice = st.radio(
         "Kis tarah sunna chahte hain?",
         ["Arabic + Urdu Translation", "Arabic + English Translation", "Sirf Arabic"],
     )
-    st.markdown(
-        f"<div style='font-size:26px; text-align:right; direction:rtl'>{arabic_text}</div>",
-        unsafe_allow_html=True,
-    )
 
-    reciter = "ar.alafasy"  # Arabic recitation (Mishary Alafasy)
     try:
-        arabic_audio_url = get_audio_url(surah_number, ayah_number, reciter)
+        arabic_ayahs = get_surah_data(surah_number, "ar.alafasy")
     except Exception:
-        st.error("Arabic audio load nahi hua.")
+        st.error("Surah audio load nahi hua.")
         st.stop()
 
-    if choice == "Sirf Arabic":
-        st.audio(arabic_audio_url)
-    else:
+    trans_ayahs = None
+    lang_label = ""
+    if choice != "Sirf Arabic":
         lang_code = "ur" if "Urdu" in choice else "en"
         lang_label = "Urdu" if lang_code == "ur" else "English"
         try:
             trans_edition = find_audio_edition(lang_code)
+            trans_ayahs = get_surah_data(surah_number, trans_edition) if trans_edition else None
         except Exception:
-            trans_edition = None
+            trans_ayahs = None
+        if not trans_ayahs:
+            st.warning(f"{lang_label} mein translation audio available nahi hai — sirf Arabic sunayenge.")
 
-        st.markdown("**1️⃣ Arabic Recitation**")
-        st.audio(arabic_audio_url)
-
-        if trans_edition:
-            try:
-                trans_audio_url = get_audio_url(surah_number, ayah_number, trans_edition)
-                st.markdown(f"**2️⃣ {lang_label} Translation**")
-                st.audio(trans_audio_url)
-            except Exception:
-                st.warning(f"{lang_label} translation audio load nahi ho saki.")
-        else:
-            st.warning(f"{lang_label} mein translation audio available nahi hai.")
+    st.subheader(f"Surah {surah_name}")
+    for i, ayah in enumerate(arabic_ayahs):
+        with st.expander(f"Ayat {ayah['numberInSurah']}", expanded=(i == 0)):
+            st.markdown("**Arabic Recitation**")
+            st.audio(ayah["audio"])
+            if trans_ayahs:
+                st.markdown(f"**{lang_label} Translation**")
+                st.audio(trans_ayahs[i]["audio"])
 
 st.caption("Data source: alquran.cloud API")
