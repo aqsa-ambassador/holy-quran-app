@@ -1,5 +1,7 @@
 import streamlit as st
 import requests
+import json
+import streamlit.components.v1 as components
 
 BASE_URL = "https://api.alquran.cloud/v1"
 
@@ -133,12 +135,54 @@ else:
             st.warning(f"{lang_label} mein translation audio available nahi hai — sirf Arabic sunayenge.")
 
     st.subheader(f"Surah {surah_name}")
+
+    # Build a continuous playlist: Arabic ayah, then its translation, then next ayah...
+    tracks = []
     for i, ayah in enumerate(arabic_ayahs):
-        with st.expander(f"Ayat {ayah['numberInSurah']}", expanded=(i == 0)):
-            st.markdown("**Arabic Recitation**")
-            st.audio(ayah["audio"])
-            if trans_ayahs:
-                st.markdown(f"**{lang_label} Translation**")
-                st.audio(trans_ayahs[i]["audio"])
+        tracks.append({"url": ayah["audio"], "label": f"Ayat {ayah['numberInSurah']} — Arabic"})
+        if trans_ayahs:
+            tracks.append(
+                {"url": trans_ayahs[i]["audio"], "label": f"Ayat {ayah['numberInSurah']} — {lang_label} Translation"}
+            )
+
+    tracks_json = json.dumps(tracks)
+
+    player_html = f"""
+    <div style="font-family:sans-serif; color:#eee;">
+      <button id="startBtn" style="padding:10px 18px;font-size:16px;border-radius:8px;
+        border:none;background:#2e7d32;color:white;cursor:pointer;">▶️ Surah Sunna Shuru Karein</button>
+      <div id="nowPlaying" style="font-size:16px;margin:12px 0 6px 0;"></div>
+      <audio id="player" controls style="width:100%"></audio>
+    </div>
+    <script>
+      const tracks = {tracks_json};
+      let idx = 0;
+      const player = document.getElementById('player');
+      const label = document.getElementById('nowPlaying');
+      const btn = document.getElementById('startBtn');
+
+      function loadTrack(i) {{
+        if (i >= tracks.length) {{
+          label.innerText = "✅ Surah khatam ho gayi.";
+          return;
+        }}
+        player.src = tracks[i].url;
+        label.innerText = "🔊 " + tracks[i].label;
+        player.play();
+      }}
+
+      btn.addEventListener('click', () => {{
+        idx = 0;
+        loadTrack(idx);
+        btn.style.display = 'none';
+      }});
+
+      player.addEventListener('ended', () => {{
+        idx++;
+        loadTrack(idx);
+      }});
+    </script>
+    """
+    components.html(player_html, height=200)
 
 st.caption("Data source: alquran.cloud API")
