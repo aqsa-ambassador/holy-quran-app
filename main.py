@@ -1,7 +1,5 @@
 import streamlit as st
 import requests
-from io import BytesIO
-from pydub import AudioSegment
 
 BASE_URL = "https://api.alquran.cloud/v1"
 
@@ -38,22 +36,6 @@ def find_audio_edition(language):
     r.raise_for_status()
     data = r.json()["data"]
     return data[0]["identifier"] if data else None
-
-
-@st.cache_data(ttl=60 * 60 * 24)
-def download_audio_bytes(url):
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    return r.content
-
-
-def merge_audio(bytes1, bytes2):
-    seg1 = AudioSegment.from_file(BytesIO(bytes1))
-    seg2 = AudioSegment.from_file(BytesIO(bytes2))
-    combined = seg1 + AudioSegment.silent(duration=400) + seg2
-    out = BytesIO()
-    combined.export(out, format="mp3")
-    return out.getvalue()
 
 
 # ---------------------- UI ----------------------
@@ -113,20 +95,23 @@ else:
         st.audio(arabic_audio_url)
     else:
         lang_code = "ur" if "Urdu" in choice else "en"
-        with st.spinner("Audio taiyar ho raha hai..."):
+        lang_label = "Urdu" if lang_code == "ur" else "English"
+        try:
+            trans_edition = find_audio_edition(lang_code)
+        except Exception:
+            trans_edition = None
+
+        st.markdown("**1️⃣ Arabic Recitation**")
+        st.audio(arabic_audio_url)
+
+        if trans_edition:
             try:
-                trans_edition = find_audio_edition(lang_code)
-                if trans_edition:
-                    trans_audio_url = get_audio_url(surah_number, ayah_number, trans_edition)
-                    arabic_bytes = download_audio_bytes(arabic_audio_url)
-                    trans_bytes = download_audio_bytes(trans_audio_url)
-                    merged = merge_audio(arabic_bytes, trans_bytes)
-                    st.audio(merged, format="audio/mp3")
-                else:
-                    st.warning("Is language mein translation audio available nahi — sirf Arabic chala rahe hain.")
-                    st.audio(arabic_audio_url)
+                trans_audio_url = get_audio_url(surah_number, ayah_number, trans_edition)
+                st.markdown(f"**2️⃣ {lang_label} Translation**")
+                st.audio(trans_audio_url)
             except Exception:
-                st.warning("Translation audio jorne mein masla aaya — sirf Arabic chala rahe hain.")
-                st.audio(arabic_audio_url)
+                st.warning(f"{lang_label} translation audio load nahi ho saki.")
+        else:
+            st.warning(f"{lang_label} mein translation audio available nahi hai.")
 
 st.caption("Data source: alquran.cloud API")
