@@ -69,35 +69,7 @@ if mode.startswith("📖"):
 
     st.subheader(f"Surah {surah_name}")
 
-    AYAHS_PER_PAGE = 10
-    total_ayahs = len(arabic_ayahs)
-    total_pages = max(1, (total_ayahs + AYAHS_PER_PAGE - 1) // AYAHS_PER_PAGE)
-
-    # Reset to page 1 whenever the surah changes
-    if st.session_state.get("read_surah") != surah_number:
-        st.session_state["read_surah"] = surah_number
-        st.session_state["read_page"] = 1
-
-    if total_pages > 1:
-        nav1, nav2, nav3 = st.columns([1, 2, 1])
-        with nav1:
-            if st.button("⬅️ Previous", disabled=st.session_state["read_page"] <= 1):
-                st.session_state["read_page"] -= 1
-        with nav3:
-            if st.button("Next ➡️", disabled=st.session_state["read_page"] >= total_pages):
-                st.session_state["read_page"] += 1
-        with nav2:
-            st.markdown(
-                f"<div style='text-align:center'>Page {st.session_state['read_page']} of {total_pages}</div>",
-                unsafe_allow_html=True,
-            )
-
-    page = st.session_state.get("read_page", 1)
-    start = (page - 1) * AYAHS_PER_PAGE
-    end = start + AYAHS_PER_PAGE
-
-    for i in range(start, min(end, total_ayahs)):
-        ayah = arabic_ayahs[i]
+    for i, ayah in enumerate(arabic_ayahs):
         st.markdown(f"**{ayah['numberInSurah']}.**")
         st.markdown(
             f"<div style='font-size:28px; text-align:right; direction:rtl; line-height:1.8'>{ayah['text']}</div>",
